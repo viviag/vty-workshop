@@ -61,26 +61,15 @@ renderVtyImage image = bracket startVty shutdown drawImage
 -- 'renderVtyImage' 'plainHelloWorld'
 -- @
 plainHelloWorld :: Image
-plainHelloWorld = string defAttr "Hello World"
+plainHelloWorld = string defAttr "Hello world"
 
-
-
-
-
-
-
-
-
-
-  
-  
 -- | Print "Hello World" in red on blue
 --
 -- @
 -- 'renderVtyImage' 'colorfulHelloWorld'
 -- @
 colorfulHelloWorld :: Image
-colorfulHelloWorld = string (defAttr `withForeColor` red `withBackColor` blue) "Hello World"
+colorfulHelloWorld = string (withBackColor (withForeColor (withStyle defAttr blink) red) blue) "Hello world"
 
 -- | Print a list with "Item 1", "Item 2", ..., "Item 10", where the first item
 -- is in 'standout' (reverse video) style.
@@ -89,7 +78,12 @@ colorfulHelloWorld = string (defAttr `withForeColor` red `withBackColor` blue) "
 -- 'renderVtyImage' 'staticVtyList'
 -- @
 staticVtyList :: Image
-staticVtyList = vertCat (string (defAttr `withStyle` standout) first : fmap (string defAttr) rest)
+-- staticVtyList = foldl (<->) (string (withForeColor defAttr green) first) (map (string defAttr) rest)
+
+-- @'vertCat'@ inners: look at - use foldr
+
+-- staticVtyList = vertCat $ (string (withForeColor defAttr green) first) : (map (string defAttr) rest)
+staticVtyList = (string (withForeColor defAttr green) first) <-> vertCat (map (string defAttr) rest)
   where
     first : rest = fmap (("Item " ++) . show) [1..10 :: Int]
 
@@ -127,26 +121,31 @@ runVtyApp app initialState = bracket startVty shutdown (eventLoop initialState)
 -- @
 vtyListApp :: MiniApp ([String], Int)
 vtyListApp = MiniApp
-    { appRender = \(items, selectedIndex) ->
-        let (pre, sel, post) = split3 selectedIndex items
-        in  vertCat (fmap (string defAttr) pre)
-                <-> string (defAttr `withStyle` standout) sel
-                <-> vertCat (fmap (string defAttr) post)
-    , appHandle = \event (items, selectedIndex) -> case event of
-        EvKey KUp []   -> Just (items, selectedIndex - 1)
-        EvKey KDown [] -> Just (items, selectedIndex + 1)
-        EvKey KEsc []  -> Nothing
-        _otherwise     -> Just (items, selectedIndex)
+    { appRender = appRenderLocal
+    , appHandle = appHandleLocal
     }
-  where
-    split3 :: Int -> [a] -> ([a], a, [a])
-    split3 n items
-        | n < 0 = ([], head items, tail items)
-        | n >= length items = (init items, last items, [])
-        | otherwise =
-            let (pre, post') = splitAt n items
-                ([sel], post) = splitAt 1 post'
-            in  (pre, sel, post)
+
+split3 :: Int -> [a] -> ([a], a, [a])
+split3 n items
+  | n < 0 = ([], head items, tail items)
+  | n >= length items = (init items, last items, [])
+  | otherwise =
+     let (pre, post') = splitAt n items
+         ([sel], post) = splitAt 1 post'
+     in  (pre, sel, post)
 
 vtyListAppState :: ([String], Int)
 vtyListAppState = (fmap (("Item " ++) . show) [1..10 :: Int], 0)
+
+appRenderLocal :: ([String], Int) -> Image
+appRenderLocal (list, state) = (vertCat $ map (string defAttr) first) <-> (string (withForeColor defAttr green) selected) <-> (vertCat $ map (string defAttr) rest)
+  where
+    (first, selected, rest) = split3 state list
+
+appHandleLocal :: Event -> ([String], Int) -> Maybe ([String], Int)
+appHandleLocal (EvKey KEsc []) _ = Nothing
+appHandleLocal (EvKey KUp []) (a, 0) = Just (a, 0)
+appHandleLocal (EvKey KUp []) (a, n) = Just (a, n-1)
+appHandleLocal (EvKey KDown []) (a,10) = Just (a, 10)
+appHandleLocal (EvKey KDown []) (a,n) = Just (a, n+1)
+appHandleLocal _ s = Just s
